@@ -1,3 +1,5 @@
+#if 0
+
 #include <iostream>
 #include "ChatServer.h"
 #include "ChatService.h"
@@ -13,3 +15,5 @@ int main(int argc, char **argv){
 
     return 0;
 }
+
+#endif
