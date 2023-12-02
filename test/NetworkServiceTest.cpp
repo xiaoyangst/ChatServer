@@ -1,4 +1,4 @@
-#if 0
+#if 1
 
 #include <iostream>
 #include "ChatServer.h"
@@ -17,3 +17,7 @@ int main(int argc, char **argv){
 }
 
 #endif
+
+//注册业务测试    {"msgid":4,"name":"xy_user","pwd":"123456"}
+
+//登录业务测试    {"msgid":1,"id":24,"pwd":"123456"}

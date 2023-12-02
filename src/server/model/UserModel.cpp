@@ -9,7 +9,7 @@ User UserModel::qurry(int id) {
 
     //建立连接，返回查询结果（User）
     MySql mySql;
-    if (!mySql.connect()){
+    if (mySql.connect()){
         MYSQL_RES *res= mySql.query(sql);
         if (res != nullptr){
             MYSQL_ROW row = mysql_fetch_row(res);

@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <muduo/net/TcpConnection.h>
 #include "json.hpp"
+#include "UserModel.h"
 
 
 using json = nlohmann::json;
@@ -33,6 +34,8 @@ private:
     ChatService();
     //存储消息id和其对应的事件处理方法
     unordered_map<int,MsgHandler> _msgHandlerMap;
+
+    UserModel _userModel;
 };
 
 #endif //CHATSERVER_CHATSERVICE_H

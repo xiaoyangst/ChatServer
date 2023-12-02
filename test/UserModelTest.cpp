@@ -1,3 +1,5 @@
+#if 0
+
 #include "UserModel.h"
 #include <iostream>
 using namespace std;
@@ -38,6 +40,8 @@ int main(){
     User user1 =  userModel.qurry(2);
     cout<<"重置后 state = "<<user1.getState()<<endl;
 
-    
+
     return 0;
 }
+
+#endif

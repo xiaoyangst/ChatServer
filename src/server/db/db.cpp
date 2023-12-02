@@ -2,7 +2,7 @@
 #include <muduo/base/Logging.h>
 
 // 数据库配置信息
-static const string server = "192.168.204.154";
+static const string server = "127.0.0.1";
 static const string user = "chat";
 static const string password = "chat";
 static const string dbname = "chat";
@@ -26,7 +26,7 @@ bool MySql::connect()
 {
     MYSQL *p = mysql_real_connect(_conn, server.c_str(), user.c_str(),
                                   password.c_str(), dbname.c_str(), 3306, nullptr, 0);
-    if (p != nullptr)
+    if (p != NULL)
     {
         // C和C++代码默认的编码字符是ASCII，如果不设置，从MySQL上拉下来的中文显示？
         mysql_query(_conn, "set names gbk");
@@ -36,7 +36,7 @@ bool MySql::connect()
         LOG_INFO << "connect mysql failed!";
     }
 
-    return p;
+    return p;   //返回nullptr代表连接失败
 }
 
 // 更新操作
