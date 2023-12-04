@@ -1,5 +1,6 @@
 #include "ChatService.h"
 
+
 #include "public.h"
 #include <iostream>
 #include <muduo/base/Logging.h>
@@ -8,6 +9,7 @@
 ChatService::ChatService() {
     _msgHandlerMap.insert({LOGIN_MSG,std::bind(&ChatService::loginHandler, this,_1,_2,_3)});
     _msgHandlerMap.insert({REGISTER_MSG,std::bind(&ChatService::registerHandler, this,_1,_2,_3)});
+
 }
 
 MsgHandler ChatService::getHandler(int msgId) {
@@ -36,6 +38,9 @@ void ChatService::registerHandler(const muduo::net::TcpConnectionPtr &conn, json
     bool state = _userModel.insert(user);   //记录插入是否成功的状态保存到state变量中，true   /   false
 
     if (state){ //注册成功
+
+        LOG_INFO <<name<<":register success!";
+
         json response;
         response["msgid"] = REGISTER_MSG;
         response["errno"] = 0;
@@ -69,6 +74,14 @@ void ChatService::loginHandler(const muduo::net::TcpConnectionPtr &conn, json &j
             response["errmsg"] = "this account is using, input another!";
             conn->send(response.dump());
         } else{ //登录成功
+
+            LOG_INFO <<user.getName()<<":login success!";
+
+            {
+                lock_guard<mutex> lockGuard(_conmutex);
+                _userConnMap.insert({id,conn});
+            }
+
             user.setState("online");
             _userModel.updateState(user);
 
@@ -88,3 +101,25 @@ void ChatService::loginHandler(const muduo::net::TcpConnectionPtr &conn, json &j
         conn->send(response.dump());
     }
 }
+
+void ChatService::clientCloseException(const muduo::net::TcpConnectionPtr &conn) {
+    User user;
+    {   //找到连接，并在 _userConnMap 删除它
+        lock_guard<mutex> lockGuard(_conmutex);
+        for (auto it = _userConnMap.begin(); it != _userConnMap.end() ; ++it) {
+            if (it->second == conn){
+                user.setId(it->first);
+                _userConnMap.erase(it);
+                break;
+            }
+        }
+    }
+
+    //更新用户状态
+    if (user.getId() != -1){
+        user.setState("offline");
+        _userModel.updateState(user);
+    }
+}
+
+

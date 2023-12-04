@@ -1,9 +1,10 @@
 #include "ChatServer.h"
 #include "ChatService.h"
 #include "json.hpp"
-#include <iostream>
 #include <functional>
 #include <string>
+#include <muduo/base/Logging.h>
+#include <iostream>
 
 using namespace std;
 using namespace placeholders;
@@ -16,12 +17,15 @@ ChatServer::ChatServer(muduo::net::EventLoop *loop, const muduo::net::InetAddres
     _server.setConnectionCallback(std::bind(&ChatServer::onConnection, this,_1));
     //注册消息事件回调
     _server.setMessageCallback(std::bind(&ChatServer::onMessage, this,_1,_2,_3));
+
     //设置subLoop线程数量
-    _server.setThreadNum(3);
+    _server.setThreadNum(4);
 }
 
 void ChatServer::onConnection(const TcpConnectionPtr &conn) {
     if (!conn->connected()){    //用户断开连接
+        LOG_INFO <<"处理用户异常断开";
+        ChatService::instance()->clientCloseException(conn);
         conn->shutdown();
     }
 }
