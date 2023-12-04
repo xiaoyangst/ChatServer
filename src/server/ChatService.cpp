@@ -9,7 +9,7 @@
 ChatService::ChatService() {
     _msgHandlerMap.insert({LOGIN_MSG,std::bind(&ChatService::loginHandler, this,_1,_2,_3)});
     _msgHandlerMap.insert({REGISTER_MSG,std::bind(&ChatService::registerHandler, this,_1,_2,_3)});
-
+    _msgHandlerMap.insert({ ONE_CHAT_MSG,std::bind(&ChatService::oneChatHandler, this,_1,_2,_3)});
 }
 
 MsgHandler ChatService::getHandler(int msgId) {
@@ -91,6 +91,17 @@ void ChatService::loginHandler(const muduo::net::TcpConnectionPtr &conn, json &j
             response["id"] = user.getId();
             response["name"] = user.getName();
 
+            //查看是否有离线消息
+            std::vector<std::string> result = _offlineMsgModel.query(id);
+            if (!result.empty()){
+                //有离线消息
+                response["offlinemsg"] = result;
+                //读取之后就该移除离线消息
+                _offlineMsgModel.remove(id);
+            }else{
+                LOG_INFO << "no offlienmsg";
+            }
+
             conn->send(response.dump());
         }
     }else{  //登录失败
@@ -120,6 +131,30 @@ void ChatService::clientCloseException(const muduo::net::TcpConnectionPtr &conn)
         user.setState("offline");
         _userModel.updateState(user);
     }
+}
+
+//如果用户登录状态，直接给他发消息
+//如果用户离线状态，把离线消息存储起来，等他上线时候读取
+void ChatService::oneChatHandler(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+    //先获取 聊天对象的ID
+    int toId = js["toid"].get<int>();
+
+    {
+        lock_guard<mutex> lockGuard(_conmutex);
+        auto it = _userConnMap.find(toId);
+        if (it != _userConnMap.end()){  //确认在线
+            it->second->send(js.dump());
+            return;
+        }
+    }
+
+    //处理离线
+    _offlineMsgModel.insert(toId,js.dump());
+}
+
+void ChatService::reset() {
+    //全部online转换为offline
+    _userModel.resetState();
 }
 
 

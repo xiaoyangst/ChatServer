@@ -6,6 +6,7 @@
 #include <mutex>
 #include "json.hpp"
 #include "UserModel.h"
+#include "OfflineMsgModel.h"
 
 
 using json = nlohmann::json;
@@ -33,7 +34,10 @@ public:
     void registerHandler(const TcpConnectionPtr &conn, json &js, Timestamp time);
     //用户异常退出
     void clientCloseException(const TcpConnectionPtr &conn);
-
+    //点对点聊天业务
+    void oneChatHandler(const TcpConnectionPtr &conn, json &js, Timestamp time);
+    //服务端异常退出
+    void reset();
 private:
     ChatService();
     //存储消息id和其对应的事件处理方法
@@ -45,6 +49,7 @@ private:
     mutex _conmutex;
 
     UserModel _userModel;
+    OfflineMsgModel _offlineMsgModel;
 };
 
 #endif //CHATSERVER_CHATSERVICE_H

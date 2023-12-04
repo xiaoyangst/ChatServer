@@ -6,10 +6,20 @@
 #include <muduo/base/Logging.h>
 #include <signal.h>
 
+// 捕获SIGINT的处理函数
+void resetHandler(int)
+{
+    LOG_INFO << "capture the SIGINT, will reset state\n";
+    ChatService::instance()->reset();
+    exit(0);
+}
+
 
 
 int main(int argc, char **argv){
 
+    // 向SIGINT信号注册resetHandler回调函数
+    signal(SIGINT, resetHandler);
 
     EventLoop loop;
     InetAddress addr("127.0.0.1", 8080);
@@ -28,3 +38,20 @@ int main(int argc, char **argv){
 //登录业务测试    {"msgid":1,"id":21,"pwd":"123456"}
 
 //客户端异常退出测试     ps查看客户端pid，然后通过kill命令杀死进程模拟客户端异常退出
+
+//点对点聊天测试
+/*
+ * {"msgid":1,"id":18,"pwd":"123456"}
+ * {"msgid":1,"id":19,"pwd":"123456"}
+ * {"from":"wu yang","id":18,"msgid":6,"toid":19,"msg":"hello,pi pi"}
+ * {"from":"pi pi","id":19,"msgid":6,"toid":18,"msg":"hello,wu yang"}
+ */
+
+//离线消息测试
+/*
+ * {"msgid":1,"id":18,"pwd":"123456"}
+ * {"msgid":1,"id":19,"pwd":"123456"}
+ * {"from":"wu yang","id":18,"msgid":6,"toid":21,"msg":"hello,gao yang"}
+ * {"from":"pi pi","id":19,"msgid":6,"toid":21,"msg":"hello,gao yang"}
+ * {"msgid":1,"id":21,"pwd":"123456"}
+ */
