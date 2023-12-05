@@ -7,6 +7,8 @@
 #include "json.hpp"
 #include "UserModel.h"
 #include "OfflineMsgModel.h"
+#include "FriendModel.h"
+#include "GroupModel.h"
 
 
 using json = nlohmann::json;
@@ -38,6 +40,14 @@ public:
     void oneChatHandler(const TcpConnectionPtr &conn, json &js, Timestamp time);
     //服务端异常退出
     void reset();
+    //添加好友业务
+    void addFriendHandler(const TcpConnectionPtr &conn, json &js, Timestamp time);
+    //创建群组业务
+    void createGroup(const TcpConnectionPtr &conn, json &js, Timestamp time);
+    //加入群组业务
+    void addGroup(const TcpConnectionPtr &conn, json &js, Timestamp time);
+    //群聊业务
+    void chatGroup(const TcpConnectionPtr &conn, json &js, Timestamp time);
 private:
     ChatService();
     //存储消息id和其对应的事件处理方法
@@ -50,6 +60,8 @@ private:
 
     UserModel _userModel;
     OfflineMsgModel _offlineMsgModel;
+    FriendModel _friendModel;
+    GroupModel _groupModel;
 };
 
 #endif //CHATSERVER_CHATSERVICE_H
