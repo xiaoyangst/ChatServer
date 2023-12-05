@@ -1,5 +1,3 @@
-#if 1
-
 #include <iostream>
 #include "ChatServer.h"
 #include "ChatService.h"
@@ -30,8 +28,6 @@ int main(int argc, char **argv){
 
     return 0;
 }
-
-#endif
 
 //注册业务测试    {"msgid":4,"name":"xyasu","pwd":"123456"}
 

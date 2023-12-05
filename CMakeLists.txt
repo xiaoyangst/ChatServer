@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ChatServer C CXX)
+project(CHAT C CXX)
 
 set(CMAKE_CXX_STANDARD 11)
 
@@ -18,5 +18,4 @@ include_directories(${PROJECT_SOURCE_DIR}/include/server/model)
 include_directories(${PROJECT_SOURCE_DIR}/include/server/redis)
 
 # 添加src目录
-add_subdirectory(test)
-
+add_subdirectory(src)
