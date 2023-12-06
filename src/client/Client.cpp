@@ -120,7 +120,7 @@ int main(int argc, char **argv)
                 json js;
                 js["msgid"] = LOGIN_MSG;
                 js["id"] = id;
-                js["password"] = pwd;
+                js["pwd"] = pwd;
                 string request = js.dump();
 
                 g_isLoginSuccess = false;
@@ -153,7 +153,7 @@ int main(int argc, char **argv)
                 json js;
                 js["msgid"] = REGISTER_MSG;
                 js["name"] = name;
-                js["password"] = pwd;
+                js["pwd"] = pwd;
                 string request = js.dump();
 
                 int len = send(clientfd, request.c_str(), strlen(request.c_str()) + 1, 0);

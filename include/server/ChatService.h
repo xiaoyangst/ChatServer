@@ -9,7 +9,7 @@
 #include "OfflineMsgModel.h"
 #include "FriendModel.h"
 #include "GroupModel.h"
-
+#include "redis.h"
 
 using json = nlohmann::json;
 using namespace std;
@@ -48,6 +48,8 @@ public:
     void addGroup(const TcpConnectionPtr &conn, json &js, Timestamp time);
     //群聊业务
     void chatGroup(const TcpConnectionPtr &conn, json &js, Timestamp time);
+    //redis订阅消息触发的回调函数
+    void redis_subscribe_message_handler(int channel, string message);
 private:
     ChatService();
     //存储消息id和其对应的事件处理方法
@@ -58,10 +60,14 @@ private:
 
     mutex _conmutex;
 
+    //redis操作对象
+    Redis _redis;
+
     UserModel _userModel;
     OfflineMsgModel _offlineMsgModel;
     FriendModel _friendModel;
     GroupModel _groupModel;
+
 };
 
 #endif //CHATSERVER_CHATSERVICE_H

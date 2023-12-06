@@ -15,6 +15,11 @@ ChatService::ChatService() {
     _msgHandlerMap.insert({CREATE_GROUP_MSG,std::bind(&ChatService::createGroup, this,_1,_2,_3)});
     _msgHandlerMap.insert({ADD_GROUP_MSG,std::bind(&ChatService::addGroup, this,_1,_2,_3)});
     _msgHandlerMap.insert({GROUP_CHAT_MSG,std::bind(&ChatService::chatGroup, this,_1,_2,_3)});
+
+    if (_redis.connect())
+    {
+        _redis.init_notify_handler(std::bind(&ChatService::redis_subscribe_message_handler, this, _1, _2));
+    }
 }
 
 MsgHandler ChatService::getHandler(int msgId) {
@@ -86,6 +91,9 @@ void ChatService::loginHandler(const muduo::net::TcpConnectionPtr &conn, json &j
                 lock_guard<mutex> lockGuard(_conmutex);
                 _userConnMap.insert({id,conn});
             }
+
+            // id用户登录成功后，向redis订阅channel(id)
+            _redis.subscribe(id);
 
             user.setState("online");
             _userModel.updateState(user);
@@ -159,6 +167,9 @@ void ChatService::clientCloseException(const muduo::net::TcpConnectionPtr &conn)
         }
     }
 
+    // 用户注销
+    _redis.unsubscribe(user.getId());
+
     //更新用户状态
     if (user.getId() != -1){
         user.setState("offline");
@@ -179,6 +190,14 @@ void ChatService::oneChatHandler(const TcpConnectionPtr &conn, json &js, Timesta
             it->second->send(js.dump());
             return;
         }
+    }
+
+    // 用户在其他主机的情况，publish消息到redis
+    User user = _userModel.qurry(toId);
+    if (user.getState() == "online")
+    {
+        _redis.publish(toId, js.dump());
+        return;
     }
 
     //处理离线
@@ -230,8 +249,30 @@ void ChatService::chatGroup(const TcpConnectionPtr &conn, json &js, Timestamp ti
         if (it != _userConnMap.end()){
             it->second->send(js.dump());
         } else{
-            _offlineMsgModel.insert(id,js.dump());
+
+            User user = _userModel.qurry(id);
+            if (user.getState() == "online"){
+                _redis.publish(id,js.dump());
+            } else{
+                _offlineMsgModel.insert(id,js.dump());
+            }
         }
     }
+}
+
+// redis订阅消息触发的回调函数,这里channel其实就是id
+void ChatService::redis_subscribe_message_handler(int channel, string message)
+{
+    //用户在线
+    lock_guard<mutex> lock(_conmutex);
+    auto it = _userConnMap.find(channel);
+    if (it != _userConnMap.end())
+    {
+        it->second->send(message);
+        return;
+    }
+
+    //转储离线
+    _offlineMsgModel.insert(channel, message);
 }
 
