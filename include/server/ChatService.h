@@ -36,6 +36,8 @@ public:
     void registerHandler(const TcpConnectionPtr &conn, json &js, Timestamp time);
     //用户异常退出
     void clientCloseException(const TcpConnectionPtr &conn);
+	//用户注销
+    void clientLogout(const TcpConnectionPtr &conn, json &js, Timestamp time);
     //点对点聊天业务
     void oneChatHandler(const TcpConnectionPtr &conn, json &js, Timestamp time);
     //服务端异常退出

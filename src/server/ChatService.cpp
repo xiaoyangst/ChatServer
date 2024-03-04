@@ -15,6 +15,7 @@ ChatService::ChatService() {
     _msgHandlerMap.insert({CREATE_GROUP_MSG,std::bind(&ChatService::createGroup, this,_1,_2,_3)});
     _msgHandlerMap.insert({ADD_GROUP_MSG,std::bind(&ChatService::addGroup, this,_1,_2,_3)});
     _msgHandlerMap.insert({GROUP_CHAT_MSG,std::bind(&ChatService::chatGroup, this,_1,_2,_3)});
+	_msgHandlerMap.insert({LOGINOUT_MSG,std::bind(&ChatService::clientLogout,this,_1,_2,_3)});
 
     if (_redis.connect())
     {
@@ -276,3 +277,11 @@ void ChatService::redis_subscribe_message_handler(int channel, string message)
     _offlineMsgModel.insert(channel, message);
 }
 
+// 用户注销
+void ChatService::clientLogout(const muduo::net::TcpConnectionPtr &conn, json &js, muduo::Timestamp time) {
+  int id = js["id"].get<int>();
+
+  LOG_DEBUG <<"client id = "<<id <<" start do logout !";
+
+  clientCloseException(conn);
+}
