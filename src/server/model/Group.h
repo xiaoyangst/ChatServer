@@ -12,13 +12,13 @@
 
 class Group{
 public:
-    Group(int id = -1, std::string name = "",std::string desc = "");
+    explicit Group(int id = -1, std::string name = "",std::string desc = "");
 
     void setId(int id);
     void setName(std::string name);
     void setDesc(std::string desc);
 
-    int getId();
+    int getId() const;
     std::string getName();
     std::string getDesc();
     std::vector<GroupUser> &getUsers();

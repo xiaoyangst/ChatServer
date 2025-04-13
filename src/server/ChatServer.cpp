@@ -3,14 +3,13 @@
 #include "json.hpp"
 #include <functional>
 #include <string>
-#include <muduo/base/Logging.h>
-#include <iostream>
+#include "net/Logger.h"
 
 using namespace std;
 using namespace placeholders;
 using json = nlohmann::json;
 
-ChatServer::ChatServer(muduo::net::EventLoop *loop, const muduo::net::InetAddress &listenAddr,
+ChatServer::ChatServer(EventLoop *loop, const InetAddress &listenAddr,
                        const std::string &nameArg)
         : _loop(loop), _server(loop, listenAddr, nameArg) {
     //注册连接回调
@@ -24,7 +23,7 @@ ChatServer::ChatServer(muduo::net::EventLoop *loop, const muduo::net::InetAddres
 
 void ChatServer::onConnection(const TcpConnectionPtr &conn) {
     if (!conn->connected()){    //用户断开连接
-        LOG_INFO <<"处理用户异常断开";
+        LOG_INFO("处理用户异常断开");
         ChatService::instance()->clientCloseException(conn);
         conn->shutdown();
     }
