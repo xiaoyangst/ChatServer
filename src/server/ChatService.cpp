@@ -18,9 +18,15 @@ ChatService::ChatService() {
 	_msgHandlerMap.insert({GROUP_CHAT_MSG, std::bind(&ChatService::chatGroup, this, _1, _2, _3)});
 	_msgHandlerMap.insert({LOGINOUT_MSG, std::bind(&ChatService::clientLogout, this, _1, _2, _3)});
 
-	if (_redis.connect()) {
-		_redis.init_notify_handler(std::bind(&ChatService::redis_subscribe_message_handler, this, _1, _2));
-	}
+	auto re = RedisConnectionPool::getInstance();
+	re->init(
+		std::bind(&ChatService::redis_subscribe_message_handler, this, _1, _2));
+
+
+//	if (_redis.connect()) {
+//		_redis.init_notify_handler(std::bind(&ChatService::redis_subscribe_message_handler, this, _1, _2));
+//	}
+
 }
 
 MsgHandler ChatService::getHandler(int msgId) {
@@ -57,21 +63,21 @@ void ChatService::registerHandler(const TcpConnectionPtr &conn, json &js, Timest
 		response["errno"] = 0;
 		response["id"] = user.getId();
 
-		//dump方法把json转换为std::string
+		//dump 方法把 json 转换为 std::string
 		conn->send(response.dump());
 		cout << "register info to client" << endl;
 	} else {
 		json response;
 		response["msgid"] = REGISTER_MSG_ACK;
 		response["errno"] = 1;
-		// 注册已经失败，不需要在json返回id
+		// 注册已经失败，不需要在 json 返回 id
 		conn->send(response.dump());
 	}
 
 }
 
 void ChatService::loginHandler(const TcpConnectionPtr &conn, json &js, Timestamp time) {
-	LOG_DEBUG("start do login !");
+	LOG_INFO("start do login !");
 
 	int id = js["id"].get<int>();
 	std::string pwd = js["pwd"];
@@ -94,8 +100,8 @@ void ChatService::loginHandler(const TcpConnectionPtr &conn, json &js, Timestamp
 				_userConnMap.insert({id, conn});
 			}
 
-			// id用户登录成功后，向redis订阅channel(id)
-			_redis.subscribe(id);
+			// id 用户登录成功后，向 redis 订阅 channel(id)
+			RedisConnectionPool::getInstance()->getConn()->subscribe(std::to_string(id));
 
 			user.setState("online");
 			_userModel.updateState(user);
@@ -170,7 +176,7 @@ void ChatService::clientCloseException(const TcpConnectionPtr &conn) {
 	}
 
 	// 用户注销
-	_redis.unsubscribe(user.getId());
+	RedisConnectionPool::getInstance()->getConn()->unsubscribe(to_string(user.getId()));
 
 	//更新用户状态
 	if (user.getId() != -1) {
@@ -189,15 +195,15 @@ void ChatService::oneChatHandler(const TcpConnectionPtr &conn, json &js, Timesta
 		lock_guard<mutex> lockGuard(_conmutex);
 		auto it = _userConnMap.find(toId);
 		if (it != _userConnMap.end()) {  //确认在线
-			it->second->send( js.dump());
+			it->second->send(js.dump());
 			return;
 		}
 	}
 
-	// 用户在其他主机的情况，publish消息到redis
+	// 用户在其他主机的情况，publish消息到 redis
 	User user = _userModel.qurry(toId);
 	if (user.getState() == "online") {
-		_redis.publish(toId, js.dump());
+		RedisConnectionPool::getInstance()->getConn()->publish(to_string(toId), js.dump());
 		return;
 	}
 
@@ -248,10 +254,10 @@ void ChatService::chatGroup(const TcpConnectionPtr &conn, json &js, Timestamp ti
 		if (it != _userConnMap.end()) {
 			it->second->send(js.dump());
 		} else {
-
 			User user = _userModel.qurry(id);
-			if (user.getState() == "online") {
-				_redis.publish(id, js.dump());
+			if (user.getState() == "online") {    // 发布消息，给其他服务器上的用户
+				RedisConnectionPool::getInstance()->getConn()->publish(to_string(id), js.dump());
+				std::cout << "publish" << std::endl;
 			} else {
 				_offlineMsgModel.insert(id, js.dump());
 			}
@@ -260,17 +266,17 @@ void ChatService::chatGroup(const TcpConnectionPtr &conn, json &js, Timestamp ti
 }
 
 // redis订阅消息触发的回调函数,这里channel其实就是id
-void ChatService::redis_subscribe_message_handler(int channel, string message) {
+void ChatService::redis_subscribe_message_handler(const string& channel, const string& message) {
 	//用户在线
 	lock_guard<mutex> lock(_conmutex);
-	auto it = _userConnMap.find(channel);
+	auto it = _userConnMap.find(stoi(channel));
 	if (it != _userConnMap.end()) {
 		it->second->send(message);
 		return;
 	}
 
 	//转储离线
-	_offlineMsgModel.insert(channel, message);
+	_offlineMsgModel.insert(stoi(channel), message);
 }
 
 // 用户注销

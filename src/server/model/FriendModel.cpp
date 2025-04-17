@@ -1,12 +1,11 @@
 #include "FriendModel.h"
-#include "db.h"
-#include "dbpool/ConnectionPool.h"
+#include "dbpool/MySQLConnectionPool.h"
 
 void FriendModel::insert(int userId, int friendId) {
 	char sql[1024] = {0};
 	snprintf(sql, sizeof(sql), "insert into friend values(%d,%d)", userId, friendId);
 
-	ConnectionPool::getInstance()->getConnection()->update(sql);
+	MySQLConnectionPool::getInstance()->getConnection()->update(sql);
 
 //    MySql mysql;
 //    if (mysql.connect()) {
@@ -23,7 +22,7 @@ std::vector<User> FriendModel::query(int userId) {
 
 	std::vector<User> vec;
 
-	MYSQL_RES *res = ConnectionPool::getInstance()->getConnection()->query_result(sql);
+	MYSQL_RES *res = MySQLConnectionPool::getInstance()->getConnection()->query_result(sql);
 	if (res != nullptr) {
 		// 把userid用户的所有离线消息放入vec中返回
 		MYSQL_ROW row;

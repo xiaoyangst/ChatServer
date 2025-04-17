@@ -12,20 +12,20 @@
 #include <condition_variable>
 #include "utils/singleton.h"
 
-class ConnectionPool {
+class MySQLConnectionPool {
  public:
 
-  static ConnectionPool *getInstance() {
-	  static ConnectionPool instance;
+  static MySQLConnectionPool *getInstance() {
+	  static MySQLConnectionPool instance;
 	  return &instance;
   }
 
 	// 删除拷贝语义
-  ConnectionPool(const ConnectionPool &) = delete;
-  ConnectionPool &operator=(const ConnectionPool &) = delete;
+  MySQLConnectionPool(const MySQLConnectionPool &) = delete;
+  MySQLConnectionPool &operator=(const MySQLConnectionPool &) = delete;
 
-  ConnectionPool();
-  ~ConnectionPool();
+  MySQLConnectionPool();
+  ~MySQLConnectionPool();
   std::shared_ptr<MysqlConn> getConnection();
 
  private:

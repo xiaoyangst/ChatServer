@@ -1,6 +1,6 @@
+#include <vector>
 #include "GroupModel.h"
-#include "db.h"
-#include "dbpool/ConnectionPool.h"
+#include "dbpool/MySQLConnectionPool.h"
 
 //创建群，名称+描述
 bool GroupModel::createGroup(Group &group) {
@@ -8,7 +8,7 @@ bool GroupModel::createGroup(Group &group) {
 	snprintf(sql, sizeof(sql), "insert into allgroup(groupname, groupdesc) values('%s', '%s')",
 			 group.getName().c_str(), group.getDesc().c_str());
 
-	auto conn = ConnectionPool::getInstance()->getConnection();
+	auto conn = MySQLConnectionPool::getInstance()->getConnection();
 	if (conn->update(sql)) {
 		group.setId(mysql_insert_id(conn->getConnSrc()));
 		return true;
@@ -23,7 +23,7 @@ void GroupModel::addGroup(int userid, int groupid, std::string role) {
 	snprintf(sql, sizeof(sql), "insert into groupuser values(%d, %d, '%s')",
 			 groupid, userid, role.c_str());
 
-	ConnectionPool::getInstance()->getConnection()->update(sql);
+	MySQLConnectionPool::getInstance()->getConnection()->update(sql);
 }
 
 //查询用户在群组信息
@@ -38,7 +38,7 @@ std::vector<Group> GroupModel::queryGroups(int userid) {
 
 	std::vector<Group> groupVec;
 
-	MYSQL_RES *res = ConnectionPool::getInstance()->getConnection()->query_result(sql);
+	MYSQL_RES *res = MySQLConnectionPool::getInstance()->getConnection()->query_result(sql);
 	if (res != nullptr) {
 		MYSQL_ROW row;
 		// 查出userid所有的群组信息，保存在vector容器中
@@ -58,7 +58,7 @@ std::vector<Group> GroupModel::queryGroups(int userid) {
             inner join groupuser b on b.userid = a.id where b.groupid=%d",
 				 group.getId());
 
-		res = ConnectionPool::getInstance()->getConnection()->query_result(sql);
+		res = MySQLConnectionPool::getInstance()->getConnection()->query_result(sql);
 		if (res != nullptr) {
 			MYSQL_ROW row;
 			while ((row = mysql_fetch_row(res)) != nullptr) {
@@ -80,9 +80,9 @@ std::vector<int> GroupModel::queryGroupUsers(int userid, int groupid) {
 	char sql[1024] = {0};
 	sprintf(sql, "select userid from groupuser where groupid = %d and userid != %d", groupid, userid);
 
-	vector<int> idVec;
+	std::vector<int> idVec;
 
-	MYSQL_RES *res = ConnectionPool::getInstance()->getConnection()->query_result(sql);
+	MYSQL_RES *res = MySQLConnectionPool::getInstance()->getConnection()->query_result(sql);
 	if (res != nullptr) {
 		MYSQL_ROW row;
 		while ((row = mysql_fetch_row(res)) != nullptr) {

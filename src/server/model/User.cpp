@@ -1,5 +1,4 @@
 #include "User.h"
-
 #include <utility>
 
 User::User(int id, std::string name, std::string pwd, std::string state)

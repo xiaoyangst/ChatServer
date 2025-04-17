@@ -1,4 +1,4 @@
-#include "ConnectionPool.h"
+#include "MySQLConnectionPool.h"
 #include "json.hpp"
 
 using json = nlohmann::json;
@@ -8,21 +8,21 @@ using json = nlohmann::json;
 
 
 
-ConnectionPool::ConnectionPool() {
+MySQLConnectionPool::MySQLConnectionPool() {
     parseJsonFile();    //先解析json配置文件
 
     for (int k = 0; k < minSize_; ++k) {    //创建空闲数据池
         addConnection();
     }
 
-    std::thread producer(&ConnectionPool::produceConnection, this);
-    std::thread recycler(&ConnectionPool::recycleConnection, this);
+    std::thread producer(&MySQLConnectionPool::produceConnection, this);
+    std::thread recycler(&MySQLConnectionPool::recycleConnection, this);
 
     producer.detach();
     recycler.detach();
 }
 
-ConnectionPool::~ConnectionPool() {
+MySQLConnectionPool::~MySQLConnectionPool() {
     while (!connectionQueue_.empty()) {
         MysqlConn *conn = connectionQueue_.front();
         connectionQueue_.pop();
@@ -31,7 +31,7 @@ ConnectionPool::~ConnectionPool() {
 }
 
 //解析配置文件
-bool ConnectionPool::parseJsonFile() {
+bool MySQLConnectionPool::parseJsonFile() {
     std::string path = "config/db.json";
     std::ifstream file(path);
     if (!file.is_open()) return false;
@@ -48,7 +48,7 @@ bool ConnectionPool::parseJsonFile() {
     return true;
 }
 
-void ConnectionPool::addConnection() {
+void MySQLConnectionPool::addConnection() {
     MysqlConn *conn = new MysqlConn;
     conn->connect(ip_, user_, passwd_, dbName_, port);
     conn->refreshAliveTime();   //实际上就是记录着连接最初创建时候的起始时间
@@ -56,7 +56,7 @@ void ConnectionPool::addConnection() {
 }
 
 //生产者模块
-void ConnectionPool::produceConnection() {
+void MySQLConnectionPool::produceConnection() {
     //调用一次就循环创建连接池，如果达到连接池最高限度就阻塞（wait）
     while (true) {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -69,7 +69,7 @@ void ConnectionPool::produceConnection() {
 }
 
 //回收多余的连接
-void ConnectionPool::recycleConnection() {
+void MySQLConnectionPool::recycleConnection() {
     while (true) {
         //周期性检查
         std::this_thread::sleep_for(std::chrono::microseconds(500));
@@ -86,7 +86,7 @@ void ConnectionPool::recycleConnection() {
     }
 }
 
-std::shared_ptr<MysqlConn> ConnectionPool::getConnection() {
+std::shared_ptr<MysqlConn> MySQLConnectionPool::getConnection() {
     std::unique_lock<std::mutex> lock(mutex_);
     //这个设计巧妙，如果连接池为空可以等待一会儿
     while (connectionQueue_.empty()) {
