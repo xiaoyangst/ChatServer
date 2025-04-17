@@ -3,30 +3,25 @@
 #include "public.h"
 #include "Group.h"
 #include <iostream>
-#include <net/Logger.h>
+#include "utils/Log.h"
 
 using namespace placeholders;
 
 //注册消息以及对应的Handle对应的回调函数
 ChatService::ChatService() {
-	_msgHandlerMap.insert({LOGIN_MSG, std::bind(&ChatService::loginHandler, this, _1, _2, _3)});
-	_msgHandlerMap.insert({REGISTER_MSG, std::bind(&ChatService::registerHandler, this, _1, _2, _3)});
-	_msgHandlerMap.insert({ONE_CHAT_MSG, std::bind(&ChatService::oneChatHandler, this, _1, _2, _3)});
-	_msgHandlerMap.insert({ADD_FRIEND_MSG, std::bind(&ChatService::addFriendHandler, this, _1, _2, _3)});
-	_msgHandlerMap.insert({CREATE_GROUP_MSG, std::bind(&ChatService::createGroup, this, _1, _2, _3)});
-	_msgHandlerMap.insert({ADD_GROUP_MSG, std::bind(&ChatService::addGroup, this, _1, _2, _3)});
-	_msgHandlerMap.insert({GROUP_CHAT_MSG, std::bind(&ChatService::chatGroup, this, _1, _2, _3)});
-	_msgHandlerMap.insert({LOGINOUT_MSG, std::bind(&ChatService::clientLogout, this, _1, _2, _3)});
+	_msgHandlerMap.insert({LOGIN_MSG, std::bind(&ChatService::loginHandler, this, _1, _2)});
+	_msgHandlerMap.insert({REGISTER_MSG, std::bind(&ChatService::registerHandler, this, _1, _2)});
+	_msgHandlerMap.insert({ONE_CHAT_MSG, std::bind(&ChatService::oneChatHandler, this, _1, _2)});
+	_msgHandlerMap.insert({ADD_FRIEND_MSG, std::bind(&ChatService::addFriendHandler, this, _1, _2)});
+	_msgHandlerMap.insert({CREATE_GROUP_MSG, std::bind(&ChatService::createGroup, this, _1, _2)});
+	_msgHandlerMap.insert({ADD_GROUP_MSG, std::bind(&ChatService::addGroup, this, _1, _2)});
+	_msgHandlerMap.insert({GROUP_CHAT_MSG, std::bind(&ChatService::chatGroup, this, _1, _2)});
+	_msgHandlerMap.insert({LOGINOUT_MSG, std::bind(&ChatService::clientLogout, this, _1, _2)});
 
 	auto re = RedisConnectionPool::getInstance();
-	re->init(
-		std::bind(&ChatService::redis_subscribe_message_handler, this, _1, _2));
+	re->init(std::bind(&ChatService::redis_subscribe_message_handler, this, _1, _2));
 
-
-//	if (_redis.connect()) {
-//		_redis.init_notify_handler(std::bind(&ChatService::redis_subscribe_message_handler, this, _1, _2));
-//	}
-
+	cout << "初始化完成" << endl;
 }
 
 MsgHandler ChatService::getHandler(int msgId) {
@@ -34,15 +29,14 @@ MsgHandler ChatService::getHandler(int msgId) {
 	if (it != _msgHandlerMap.end()) {
 		return _msgHandlerMap[msgId];
 	} else {
-		//返回值本质上是一个函数，因此这里我们就用lambad帮我们实现并返回，只是简单的提示
-		return [=](const TcpConnectionPtr &conn, json &js, Timestamp) {
+		return [=](const hv::SocketChannelPtr &conn, json &js) {
 		  LOG_ERROR ("msgId: %d can not find handler!", msgId);
 		};
 	}
 }
 
-//用户提供账号和密码
-void ChatService::registerHandler(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+//测试通过
+void ChatService::registerHandler(const hv::SocketChannelPtr &conn, json &js) {
 	LOG_DEBUG ("start do register !");
 
 	std::string name = js["name"];
@@ -64,19 +58,20 @@ void ChatService::registerHandler(const TcpConnectionPtr &conn, json &js, Timest
 		response["id"] = user.getId();
 
 		//dump 方法把 json 转换为 std::string
-		conn->send(response.dump());
+		conn->write(response.dump());
 		cout << "register info to client" << endl;
 	} else {
 		json response;
 		response["msgid"] = REGISTER_MSG_ACK;
 		response["errno"] = 1;
 		// 注册已经失败，不需要在 json 返回 id
-		conn->send(response.dump());
+		conn->write(response.dump());
 	}
 
 }
 
-void ChatService::loginHandler(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+//测试通过
+void ChatService::loginHandler(const hv::SocketChannelPtr &conn, json &js) {
 	LOG_INFO("start do login !");
 
 	int id = js["id"].get<int>();
@@ -90,7 +85,7 @@ void ChatService::loginHandler(const TcpConnectionPtr &conn, json &js, Timestamp
 			response["msgid"] = LOGIN_MSG_ACK;
 			response["errno"] = 2;
 			response["errmsg"] = "this account is using, input another!";
-			conn->send(response.dump());
+			conn->write(response.dump());
 		} else { //登录成功
 
 			LOG_INFO("%s:login success!", user.getName().c_str());
@@ -151,18 +146,19 @@ void ChatService::loginHandler(const TcpConnectionPtr &conn, json &js, Timestamp
 				response["group"] = vec;
 			}
 
-			conn->send(response.dump());
+			conn->write(response.dump());
 		}
 	} else {  //登录失败
 		json response;
 		response["msgid"] = LOGIN_MSG_ACK;
 		response["errno"] = -1;
 		response["errmsg"] = "login failed ,Try again!\n";
-		conn->send(response.dump());
+		conn->write(response.dump());
 	}
 }
 
-void ChatService::clientCloseException(const TcpConnectionPtr &conn) {
+//测试通过
+void ChatService::clientCloseException(const hv::SocketChannelPtr &conn) {
 	User user;
 	{   //找到连接，并在 _userConnMap 删除它
 		lock_guard<mutex> lockGuard(_conmutex);
@@ -187,7 +183,7 @@ void ChatService::clientCloseException(const TcpConnectionPtr &conn) {
 
 //如果用户登录状态，直接给他发消息
 //如果用户离线状态，把离线消息存储起来，等他上线时候读取
-void ChatService::oneChatHandler(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+void ChatService::oneChatHandler(const hv::SocketChannelPtr &conn, json &js) {
 	//先获取 聊天对象的ID
 	int toId = js["toid"].get<int>();
 	cout << "Server Buffer " << js.dump() << endl;
@@ -195,7 +191,7 @@ void ChatService::oneChatHandler(const TcpConnectionPtr &conn, json &js, Timesta
 		lock_guard<mutex> lockGuard(_conmutex);
 		auto it = _userConnMap.find(toId);
 		if (it != _userConnMap.end()) {  //确认在线
-			it->second->send(js.dump());
+			it->second->write(js.dump());
 			return;
 		}
 	}
@@ -211,19 +207,22 @@ void ChatService::oneChatHandler(const TcpConnectionPtr &conn, json &js, Timesta
 	_offlineMsgModel.insert(toId, js.dump());
 }
 
+//测试通过
 void ChatService::reset() {
 	//全部online转换为offline
 	_userModel.resetState();
 }
 
-void ChatService::addFriendHandler(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+//测试通过
+void ChatService::addFriendHandler(const hv::SocketChannelPtr &conn, json &js) {
 	int userId = js["id"].get<int>();
 	int friendId = js["friendid"].get<int>();
 
 	_friendModel.insert(userId, friendId);
 }
 
-void ChatService::createGroup(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+//测试通过
+void ChatService::createGroup(const hv::SocketChannelPtr &conn, json &js) {
 	int userId = js["id"].get<int>();
 	std::string name = js["groupname"];
 	std::string desc = js["groupdesc"];
@@ -237,13 +236,14 @@ void ChatService::createGroup(const TcpConnectionPtr &conn, json &js, Timestamp 
 	}
 }
 
-void ChatService::addGroup(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+//测试通过
+void ChatService::addGroup(const hv::SocketChannelPtr &conn, json &js) {
 	int userId = js["id"].get<int>();
 	int groupId = js["groupid"].get<int>();
 	_groupModel.addGroup(userId, groupId, "normal");
 }
 
-void ChatService::chatGroup(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+void ChatService::chatGroup(const hv::SocketChannelPtr &conn, json &js) {
 	int userId = js["id"].get<int>();
 	int groupId = js["groupid"].get<int>();
 	std::vector<int> userIdVec = _groupModel.queryGroupUsers(userId, groupId);
@@ -252,7 +252,7 @@ void ChatService::chatGroup(const TcpConnectionPtr &conn, json &js, Timestamp ti
 	for (int id : userIdVec) {
 		auto it = _userConnMap.find(id);
 		if (it != _userConnMap.end()) {
-			it->second->send(js.dump());
+			it->second->write(js.dump());
 		} else {
 			User user = _userModel.qurry(id);
 			if (user.getState() == "online") {    // 发布消息，给其他服务器上的用户
@@ -266,12 +266,12 @@ void ChatService::chatGroup(const TcpConnectionPtr &conn, json &js, Timestamp ti
 }
 
 // redis订阅消息触发的回调函数,这里channel其实就是id
-void ChatService::redis_subscribe_message_handler(const string& channel, const string& message) {
+void ChatService::redis_subscribe_message_handler(const string &channel, const string &message) {
 	//用户在线
 	lock_guard<mutex> lock(_conmutex);
 	auto it = _userConnMap.find(stoi(channel));
 	if (it != _userConnMap.end()) {
-		it->second->send(message);
+		it->second->write(message);
 		return;
 	}
 
@@ -279,8 +279,8 @@ void ChatService::redis_subscribe_message_handler(const string& channel, const s
 	_offlineMsgModel.insert(stoi(channel), message);
 }
 
-// 用户注销
-void ChatService::clientLogout(const TcpConnectionPtr &conn, json &js, Timestamp time) {
+//测试通过
+void ChatService::clientLogout(const hv::SocketChannelPtr &conn, json &js) {
 	int id = js["id"].get<int>();
 
 	LOG_DEBUG("client id = %d start do logout !", id);

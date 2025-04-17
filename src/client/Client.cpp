@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <functional>
 #include <ctime>
 #include <unordered_map>
 using namespace std;
@@ -15,10 +16,13 @@ using json = nlohmann::json;
 #include <arpa/inet.h>
 #include <semaphore.h>
 #include <atomic>
-
+#include "hv/TcpClient.h"
+#include "utils/HvParse.h"
 #include "Group.h"
 #include "User.h"
 #include "public.h"
+
+using namespace hv;
 
 // 记录当前系统登录的用户信息
 User g_currentUser;
@@ -35,14 +39,19 @@ sem_t rwsem;
 // 记录登录状态
 atomic_bool g_isLoginSuccess{false};
 
-// 接收线程
-void readTaskHandler(int clientfd);
+void doRegResponse(json &responsejs);
+void doLoginResponse(json &responsejs);
 // 获取系统时间（聊天信息需要添加时间信息）
 string getCurrentTime();
 // 主聊天页面程序
-void mainMenu(int);
+void mainMenu(const hv::SocketChannelPtr &channel);
 // 显示当前登录成功用户的基本信息
 void showCurrentUserData();
+
+void backMenu(const hv::SocketChannelPtr &channel, json &js);
+void frontMenu(const hv::SocketChannelPtr &channel, const json &jsh = json::object());
+
+hv::SocketChannelPtr mainChannel = nullptr;
 
 // 聊天客户端程序实现，main线程用作发送线程，子线程用作接收线程
 int main(int argc, char **argv) {
@@ -55,111 +64,51 @@ int main(int argc, char **argv) {
 	char *ip = argv[1];
 	uint16_t port = atoi(argv[2]);
 
-	// 创建client端的socket
-	int clientfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (-1 == clientfd) {
-		cerr << "socket create error" << endl;
-		exit(-1);
+	hv::TcpClient tcp_client;
+	int m_connfd = tcp_client.createsocket(port, ip);
+	if (m_connfd < 0) {
+		printf("connfd failed\n");
+		return -1;
 	}
+	auto *server_unpack_setting = new unpack_setting_t();
+	memset(server_unpack_setting, 0, sizeof(unpack_setting_t));
+	server_unpack_setting->mode = UNPACK_BY_LENGTH_FIELD;
+	server_unpack_setting->package_max_length = DEFAULT_PACKAGE_MAX_LENGTH;
+	server_unpack_setting->body_offset = SERVER_HEAD_LENGTH;
+	server_unpack_setting->length_field_offset = SERVER_HEAD_LENGTH_FIELD_OFFSET;
+	server_unpack_setting->length_field_bytes = SERVER_HEAD_LENGTH_FIELD_BYTES;
+	server_unpack_setting->length_field_coding = ENCODE_BY_BIG_ENDIAN;
+	tcp_client.setUnpack(server_unpack_setting);
 
-	// 填写client需要连接的server信息ip+port
-	sockaddr_in server;
-	memset(&server, 0, sizeof(sockaddr_in));
+	// 连接建立回调
+	tcp_client.onConnection = [&](const hv::SocketChannelPtr &channel) {
+	  std::string peeraddr = channel->peeraddr();
+	  if (channel->isConnected()) {
+		  printf("onConnection connected to %s! connfd=%d\n", peeraddr.c_str(), channel->fd());
+		  mainChannel = channel;
+		  frontMenu(channel);
+	  } else {
+		  printf("onConnection disconnected to %s! connfd=%d\n", peeraddr.c_str(), channel->fd());
+		  printf("连接断开\n");
+		  return;
+	  }
+	};
 
-	server.sin_family = AF_INET;
-	server.sin_port = htons(port);
-	server.sin_addr.s_addr = inet_addr(ip);
+	// 业务回调
+	tcp_client.onMessage = [&](const hv::SocketChannelPtr &channel, hv::Buffer *buf) {
+	  std::cout << "onMessage" << std::endl;
+	  std::string peeraddr = channel->peeraddr();
+	  std::string data = std::string((char *)buf->data(), buf->size());
+	  auto message = HvParse::packMessageAsString(data);
+	  json js = json::parse(message);
+	  backMenu(channel, js);
+	};
 
-	// client和server进行连接
-	if (-1 == connect(clientfd, (sockaddr *)&server, sizeof(sockaddr_in))) {
-		cerr << "connect server error" << endl;
-		close(clientfd);
-		exit(-1);
-	}
+	tcp_client.start();
 
-	// 初始化读写线程通信用的信号量
-	sem_init(&rwsem, 0, 0);
-
-	// 连接服务器成功，启动接收子线程
-	std::thread readTask(readTaskHandler, clientfd); // pthread_create
-	readTask.detach();                               // pthread_detach
-
-	// main线程用于接收用户输入，负责发送数据
-	for (;;) {
-		// 显示首页面菜单 登录、注册、退出
-		cout << "========================" << endl;
-		cout << "1. login" << endl;
-		cout << "2. register" << endl;
-		cout << "3. quit" << endl;
-		cout << "========================" << endl;
-		cout << "choice:";
-		int choice = 0;
-		cin >> choice;
-		cin.get(); // 读掉缓冲区残留的回车
-
-		switch (choice) {
-			case 1: // login业务
-			{
-				int id = 0;
-				char pwd[50] = {0};
-				cout << "userid:";
-				cin >> id;
-				cin.get(); // 读掉缓冲区残留的回车
-				cout << "userpassword:";
-				cin.getline(pwd, 50);
-
-				json js;
-				js["msgid"] = LOGIN_MSG;
-				js["id"] = id;
-				js["pwd"] = pwd;
-				string request = js.dump();
-
-				g_isLoginSuccess = false;
-
-				int len = send(clientfd, request.c_str(), strlen(request.c_str()) + 1, 0);
-				if (len == -1) {
-					cerr << "send login msg error:" << request << endl;
-				}
-
-				sem_wait(&rwsem); // 等待信号量，由子线程处理完登录的响应消息后，通知这里
-
-				if (g_isLoginSuccess) {
-					// 进入聊天主菜单页面
-					isMainMenuRunning = true;
-					mainMenu(clientfd);
-				}
-			}
-				break;
-			case 2: // register业务
-			{
-				char name[50] = {0};
-				char pwd[50] = {0};
-				cout << "username:";
-				cin.getline(name, 50);
-				cout << "userpassword:";
-				cin.getline(pwd, 50);
-
-				json js;
-				js["msgid"] = REGISTER_MSG;
-				js["name"] = name;
-				js["pwd"] = pwd;
-				string request = js.dump();
-
-				int len = send(clientfd, request.c_str(), strlen(request.c_str()) + 1, 0);
-				if (len == -1) {
-					cerr << "send reg msg error:" << request << endl;
-				}
-
-				sem_wait(&rwsem); // 等待信号量，子线程处理完注册消息会通知
-			}
-				break;
-			case 3: // quit业务
-				close(clientfd);
-				sem_destroy(&rwsem);
-				exit(0);
-			default:cerr << "invalid input!" << endl;
-				break;
-		}
+	// 防止主线程退出
+	while (true) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // 防止主线程退出
 	}
 
 	return 0;
@@ -241,7 +190,6 @@ void doLoginResponse(json &responsejs) {
 			vector<string> vec = responsejs["offlinemsg"];
 			for (string &str : vec) {
 				json js = json::parse(str);
-				// time + [id] + name + " said: " + xxx
 				if (ONE_CHAT_MSG == js["msgid"].get<int>()) {
 					cout << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
 						 << " said: " << js["msg"].get<string>() << endl;
@@ -254,48 +202,6 @@ void doLoginResponse(json &responsejs) {
 		}
 
 		g_isLoginSuccess = true;
-	}
-}
-
-// 子线程 - 接收线程
-void readTaskHandler(int clientfd) {
-	for (;;) {
-		char buffer[1024] = {0};
-		auto len = recv(clientfd, buffer, sizeof(buffer), 0);  // 阻塞了
-		if (-1 == len || 0 == len) {
-			close(clientfd);
-			exit(-1);
-		}
-
-		json js = json::parse(buffer);
-
-
-		auto msgtype = js["msgid"].get<int>();
-		if (ONE_CHAT_MSG == msgtype) {
-			cout << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
-				 << " said: " << js["msg"].get<string>() << endl;
-			continue;
-		}
-
-		if (GROUP_CHAT_MSG == msgtype) {
-			cout << "群消息[" << js["groupid"] << "]:" << js["time"].get<string>() << " [" << js["id"] << "]"
-				 << js["name"].get<string>()
-				 << " said: " << js["msg"].get<string>() << endl;
-			continue;
-		}
-
-		if (LOGIN_MSG_ACK == msgtype) {
-			doLoginResponse(js); // 处理登录响应的业务逻辑
-			sem_post(&rwsem);    // 通知主线程，登录结果处理完成
-			continue;
-		}
-
-		if (REGISTER_MSG_ACK == msgtype) {
-			cout << "register msg ack" << endl;
-			doRegResponse(js);
-			sem_post(&rwsem);    // 通知主线程，注册结果处理完成
-			continue;
-		}
 	}
 }
 
@@ -323,19 +229,19 @@ void showCurrentUserData() {
 }
 
 // "help" command handler
-void help(int fd = 0, string str = "");
+void help(const hv::SocketChannelPtr &channel = nullptr, const string &str = "");
 // "chat" command handler
-void chat(int, string);
+void chat(const hv::SocketChannelPtr &channel, const string &);
 // "addfriend" command handler
-void addfriend(int, string);
+void addfriend(const hv::SocketChannelPtr &channel, const string &);
 // "creategroup" command handler
-void creategroup(int, string);
+void creategroup(const hv::SocketChannelPtr &channel, const string &);
 // "addgroup" command handler
-void addgroup(int, string);
+void addgroup(const hv::SocketChannelPtr &channel, const string &);
 // "groupchat" command handler
-void groupchat(int, string);
+void groupchat(const hv::SocketChannelPtr &channel, const string &);
 // "loginout" command handler
-void loginout(int, string);
+void loginout(const hv::SocketChannelPtr &channel, const string &);
 
 // 系统支持的客户端命令列表
 unordered_map<string, string> commandMap = {
@@ -345,20 +251,104 @@ unordered_map<string, string> commandMap = {
 	{"creategroup", "创建群组，格式: creategroup:groupname:groupdesc"},
 	{"addgroup", "加入群组，格式: addgroup:groupid"},
 	{"groupchat", "群聊，格式: groupchat:groupid:message"},
-	{"loginout", "注销，格式: loginout"}};
+	{"loginout", "注销，格式: loginout"}
+};
 
 // 注册系统支持的客户端命令处理
-unordered_map<string, function<void(int, string)>> commandHandlerMap = {
+unordered_map<string, std::function<void(const hv::SocketChannelPtr &, string)>> commandHandlerMap = {
 	{"help", help},
 	{"chat", chat},
 	{"addfriend", addfriend},
 	{"creategroup", creategroup},
 	{"addgroup", addgroup},
 	{"groupchat", groupchat},
-	{"loginout", loginout}};
+	{"loginout", loginout}
+};
+
+void frontMenu(const hv::SocketChannelPtr &channel, const json &jsh) {
+	// 显示首页面菜单 登录、注册、退出
+	cout << "========================" << endl;
+	cout << "1. login" << endl;
+	cout << "2. register" << endl;
+	cout << "3. quit" << endl;
+	cout << "========================" << endl;
+	cout << "choice:";
+	int choice = 0;
+	cin >> choice;
+	cin.get(); // 读掉缓冲区残留的回车
+	switch (choice) {
+		case 1: // login业务
+		{
+			int id = 0;
+			char pwd[50] = {0};
+			cout << "id:";
+			cin >> id;
+			cin.get(); // 读掉缓冲区残留的回车
+			cout << "password:";
+			cin.getline(pwd, 50);
+
+			json js;
+			js["msgid"] = LOGIN_MSG;
+			js["id"] = id;
+			js["pwd"] = pwd;
+			string request = js.dump();
+			string message = HvParse::packMessageAsString(request);
+
+			channel->write(message);
+			isMainMenuRunning = true;
+			mainMenu(channel);
+		}
+			break;
+		case 2: // register业务
+		{
+			char name[50] = {0};
+			char pwd[50] = {0};
+			cout << "username:";
+			cin.getline(name, 50);
+			cout << "password:";
+			cin.getline(pwd, 50);
+
+			json js;
+			js["msgid"] = REGISTER_MSG;
+			js["name"] = name;
+			js["pwd"] = pwd;
+			string request = js.dump();
+			string message = HvParse::packMessageAsString(request);
+
+			channel->write(message);
+			frontMenu(channel);
+		}
+			break;
+		case 3: // quit业务
+			channel->close();
+			exit(0);
+		default:cerr << "invalid input!" << endl;
+			break;
+	}
+}
+
+void backMenu(const hv::SocketChannelPtr &channel, json &js) {
+	auto msgtype = js["msgid"].get<int>();
+	if (ONE_CHAT_MSG == msgtype) {
+		cout << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
+			 << " said: " << js["msg"].get<string>() << endl;
+	} else if (GROUP_CHAT_MSG == msgtype) {
+		cout << "群消息[" << js["groupid"] << "]:" << js["time"].get<string>() << " [" << js["id"] << "]"
+			 << js["name"].get<string>()
+			 << " said: " << js["msg"].get<string>() << endl;
+	} else if (LOGIN_MSG_ACK == msgtype) {
+		doLoginResponse(js); // 处理登录响应的业务逻辑
+		isMainMenuRunning = true;
+		mainMenu(channel);
+	} else if (REGISTER_MSG_ACK == msgtype) {
+		cout << "register msg ack" << endl;
+		doRegResponse(js);
+		frontMenu(channel);
+	}
+}
 
 // 主聊天页面程序
-void mainMenu(int clientfd) {
+void mainMenu(const hv::SocketChannelPtr &channel) {
 	help();
 
 	char buffer[1024] = {0};
@@ -379,12 +369,12 @@ void mainMenu(int clientfd) {
 		}
 
 		// 调用相应命令的事件处理回调，mainMenu对修改封闭，添加新功能不需要修改该函数
-		it->second(clientfd, commandbuf.substr(idx + 1, commandbuf.size() - idx)); // 调用命令处理方法
+		it->second(channel, commandbuf.substr(idx + 1, commandbuf.size() - idx)); // 调用命令处理方法
 	}
 }
 
 // "help" command handler
-void help(int, string) {
+void help(const hv::SocketChannelPtr &channel, const string &str) {
 	cout << "show command list >>> " << endl;
 	for (auto &p : commandMap) {
 		cout << p.first << " : " << p.second << endl;
@@ -392,27 +382,21 @@ void help(int, string) {
 	cout << endl;
 }
 
-void chatrecv(int clientfd, string str) {
-
-}
-
 // "addfriend" command handler
-void addfriend(int clientfd, string str) {
+void addfriend(const hv::SocketChannelPtr &channel, const string &str) {
 	int friendid = atoi(str.c_str());
 	json js;
 	js["msgid"] = ADD_FRIEND_MSG;
 	js["id"] = g_currentUser.getId();
 	js["friendid"] = friendid;
 	string buffer = js.dump();
-
-	int len = send(clientfd, buffer.c_str(), strlen(buffer.c_str()) + 1, 0);
-	if (-1 == len) {
-		cerr << "send addfriend msg error -> " << buffer << endl;
-	}
+	string data = HvParse::packMessageAsString(buffer);
+	channel->write(data);
+	mainMenu(channel);
 }
 
 // "chat" command handler
-void chat(int clientfd, string str) {
+void chat(const hv::SocketChannelPtr &channel, const string &str) {
 	cout << str << endl;
 	int idx = str.find(":"); // friendid:message
 	if (-1 == idx) {
@@ -431,17 +415,13 @@ void chat(int clientfd, string str) {
 	js["msg"] = message;
 	js["time"] = getCurrentTime();
 	string buffer = js.dump();
-
-	cout << "Client Buffer:" << buffer << endl;
-
-	int len = send(clientfd, buffer.c_str(), strlen(buffer.c_str()) + 1, 0);
-	if (-1 == len) {
-		cerr << "send chat msg error -> " << buffer << endl;
-	}
+	string data = HvParse::packMessageAsString(buffer);
+	channel->write(data);
+	mainMenu(channel);
 }
 
 // "creategroup" command handler  groupname:groupdesc
-void creategroup(int clientfd, string str) {
+void creategroup(const hv::SocketChannelPtr &channel, const string &str) {
 	int idx = str.find(":");
 	if (-1 == idx) {
 		cerr << "creategroup command invalid!" << endl;
@@ -456,31 +436,28 @@ void creategroup(int clientfd, string str) {
 	js["id"] = g_currentUser.getId();
 	js["groupname"] = groupname;
 	js["groupdesc"] = groupdesc;
-	string buffer = js.dump();
 
-	int len = send(clientfd, buffer.c_str(), strlen(buffer.c_str()) + 1, 0);
-	if (-1 == len) {
-		cerr << "send creategroup msg error -> " << buffer << endl;
-	}
+	string buffer = js.dump();
+	string data = HvParse::packMessageAsString(buffer);
+	channel->write(data);
+	mainMenu(channel);
 }
 
 // "addgroup" command handler
-void addgroup(int clientfd, string str) {
+void addgroup(const hv::SocketChannelPtr &channel, const string &str) {
 	int groupid = atoi(str.c_str());
 	json js;
 	js["msgid"] = ADD_GROUP_MSG;
 	js["id"] = g_currentUser.getId();
 	js["groupid"] = groupid;
 	string buffer = js.dump();
-
-	int len = send(clientfd, buffer.c_str(), strlen(buffer.c_str()) + 1, 0);
-	if (-1 == len) {
-		cerr << "send addgroup msg error -> " << buffer << endl;
-	}
+	string data = HvParse::packMessageAsString(buffer);
+	channel->write(data);
+	mainMenu(channel);
 }
 
 // "groupchat" command handler   groupid:message
-void groupchat(int clientfd, string str) {
+void groupchat(const hv::SocketChannelPtr &channel, const string &str) {
 	int idx = str.find(":");
 	if (-1 == idx) {
 		cerr << "groupchat command invalid!" << endl;
@@ -498,26 +475,20 @@ void groupchat(int clientfd, string str) {
 	js["msg"] = message;
 	js["time"] = getCurrentTime();
 	string buffer = js.dump();
-
-	int len = send(clientfd, buffer.c_str(), strlen(buffer.c_str()) + 1, 0);
-	if (-1 == len) {
-		cerr << "send groupchat msg error -> " << buffer << endl;
-	}
+	string data = HvParse::packMessageAsString(buffer);
+	channel->write(data);
+	mainMenu(channel);
 }
 
 // "loginout" command handler
-void loginout(int clientfd, string) {
+void loginout(const hv::SocketChannelPtr &channel, const string &) {
 	json js;
 	js["msgid"] = LOGINOUT_MSG;
 	js["id"] = g_currentUser.getId();
 	string buffer = js.dump();
-
-	int len = send(clientfd, buffer.c_str(), strlen(buffer.c_str()) + 1, 0);
-	if (-1 == len) {
-		cerr << "send loginout msg error -> " << buffer << endl;
-	} else {
-		isMainMenuRunning = false;
-	}
+	string data = HvParse::packMessageAsString(buffer);
+	channel->write(data);
+	isMainMenuRunning = false;
 }
 
 // 获取系统时间（聊天信息需要添加时间信息）

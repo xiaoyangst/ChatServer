@@ -13,7 +13,6 @@ include_directories(${PROJECT_SOURCE_DIR}/src/server/model)
 include_directories(${PROJECT_SOURCE_DIR}/src/dbpool)
 include_directories(${PROJECT_SOURCE_DIR}/src/redispool)
 include_directories(${PROJECT_SOURCE_DIR}/src/utils)
-include_directories(${PROJECT_SOURCE_DIR}/src/server/net)
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
 add_subdirectory(src)
